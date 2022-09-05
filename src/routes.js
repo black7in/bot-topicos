@@ -1,12 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const homeController = require('./controllers/home')
+const homeController = require('./controllers/home');
+const chatBotCOntroller = require('./controllers/chatBot');
 
-//router.get("/", homeController.getHome);
-let initWebRoutes = (app) => {
-    router.get("/", homeController.getHome);
+router.get("/", homeController.getHome);
+router.get("/webhook", chatBotCOntroller.getWebhook);
+router.post("/webhook", chatBotCOntroller.postWebhook);
 
-    return app.use("/", router)
-};
-
-module.exports = initWebRoutes;
+module.exports = router;
