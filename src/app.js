@@ -3,13 +3,13 @@ const morgan = require("morgan")
 const bodyParser = require("body-parser");
 
 const app = express();
-const routes = require('./routes');
+const initWebRoutes = require('./routes');
 
 // settings
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(morgan("dev"));
 
-app.use(routes);
+initWebRoutes(app);
 
 module.exports = app;
