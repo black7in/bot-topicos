@@ -1,6 +1,6 @@
 const config = require('../config');
 const request = require("request");
-const { getResponse } = require('../dialogflow');
+//const { getResponse } = require('../dialogflow');
 
 const getWebhook = (req, res) => {  
     let mode = req.query['hub.mode'];
@@ -46,7 +46,8 @@ async function handleMessage(senderPsid, receivedMessage) {
 
     if (receivedMessage.text) {
 
-        const respuesta = await getResponse(receivedMessage.text);
+        //const respuesta = await getResponse(receivedMessage.text);
+        const respuesta = receivedMessage.text;
 
         response = {
             'text': respuesta
