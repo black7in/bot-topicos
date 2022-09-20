@@ -11,5 +11,11 @@ module.exports = {
     // google credentials
     GOOGLE_PROJECT_ID: googleCredentials.project_id || '',
     GOOGLE_PRIVATE_KEY: googleCredentials.private_key || '',
-    GOOGLE_CLIENT_MAIL: googleCredentials.client_email || ''
+    GOOGLE_CLIENT_MAIL: googleCredentials.client_email || '',
+
+    // mongodb
+    MONGO_URL: process.env.MONGO_URL || '',
+
+    // Configuraciones
+    TIME_AFK: '10000'
 }
