@@ -44,11 +44,14 @@ const postWebhook = (req, res) => {
             if (webhookEvent.message) {
                 handleMessage(senderPsid, webhookEvent.message);
             } else if (webhookEvent.postback) {
-                const message = {
+                var message = {
                     text: webhookEvent.postback.payload
                 }
-                console.log(webhookEvent.postback.payload);
                 handleMessage(senderPsid, message);
+            } else if(webhookEvent.messaging_feedback){
+                const messaging_feedback = webhookEvent.messaging_feedback;
+                const calificacion = messaging_feedback.feedback_screens[0].questions.calificarExpe;
+                Visita.guardarCalificacion(senderPsid, calificacion.payload);
             }
         });
         res.status(200).send('EVENT_RECEIVED');
@@ -259,8 +262,33 @@ async function handleActions(senderPsid, action, parameters, text, outPutParamet
             response = {
                 text: 'El concierto\n será en\n'
             }
-
-
+            break;
+        case 'action.enviarFormularioDeCalificación':
+            response = {
+                "attachment": {
+                    "type": "template",
+                    "payload": {
+                        "template_type": "customer_feedback",
+                        "title": 'Calificame!', // Business needs to define. 
+                        "subtitle": text, // Business needs to define. 
+                        "button_title": "Calificar", // Business needs to define. 
+                        "feedback_screens": [{
+                            "questions": [{
+                                "id": "calificarExpe", // Unique id for question that business sets
+                                "type": "csat",
+                                "title": "Te fue de ayuda mis servicios para reservar entradas?", // Optional. If business does not define, we show standard text. Standard text based on question type ("csat", "nps", "ces" >>> "text")
+                                "score_label": "neg_pos", // Optional
+                                "score_option": "five_stars" // Optional
+                            }]
+                        }],
+                        "business_privacy":
+                        {
+                            "url": "https://www.example.com"
+                        },
+                        "expires_in_days": 3 // Optional, default 1 day, business defines 1-7 days
+                    }
+                }
+            }
             break;
         case 'action.guardarDatosReserva':
             const oParameters = struct.decode(outPutParameters[1].parameters);
