@@ -2,7 +2,7 @@ const app = require('./src/app');
 const fs = require('fs');
 const https = require('https');
 
-function main(){
+async function main() {
     //app.listen((process.env.PORT || 5000), () => console.log('El servidor esta escchando!'));
     console.clear();
     const httpsOptions = {

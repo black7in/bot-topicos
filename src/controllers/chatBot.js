@@ -1,10 +1,16 @@
 const config = require('../config');
 const request = require("request");
+const axios = require("axios");
 const { getResponse } = require('../dialogflow');
 const { struct } = require('pb-util');
-const { Events } = require('../models/events');
-const { Sectors } = require('../models/sectors');
-
+const Concierto = require('../models/concierto');
+const Prospecto = require('../models/prospecto')
+const Artista = require('../models/artista');
+const Visita = require('../models/visita');
+const { messageTimes } = require('../maps');
+const { VERIFICATION_TOKEN } = require('../config');
+const Escenario = require('../models/escenario');
+const Interes = require('../models/interes');
 
 const reservasCollection = new Map();
 const userCollection = new Map();
@@ -34,6 +40,7 @@ const postWebhook = (req, res) => {
         body.entry.forEach(function (entry) {
             let webhookEvent = entry.messaging[0];
             let senderPsid = webhookEvent.sender.id;
+
             if (webhookEvent.message) {
                 handleMessage(senderPsid, webhookEvent.message);
             } else if (webhookEvent.postback) {
@@ -42,7 +49,6 @@ const postWebhook = (req, res) => {
                 }
                 console.log(webhookEvent.postback.payload);
                 handleMessage(senderPsid, message);
-
             }
         });
         res.status(200).send('EVENT_RECEIVED');
@@ -55,13 +61,54 @@ const postWebhook = (req, res) => {
 async function handleMessage(senderPsid, receivedMessage) {
     let response;
 
-    if (receivedMessage.text) {
-        const result = await getResponse(senderPsid, receivedMessage.text);
+    // Verificar si el usuario ya esta en Prospecto
+    const usuarioEstaEnProspecto = await Prospecto.findOne({ facebookId: senderPsid });
+    if (!usuarioEstaEnProspecto) {
+        // Obtener datos del nuevo cliente
+        const datosUsuario = await getUserData(senderPsid);
+        // Crear nuevo prospecto y visita, con todos los datos obtenidos.
+        const nuevoProspecto = new Prospecto({
+            facebookId: senderPsid,
+            first_name: datosUsuario.first_name,
+            last_name: datosUsuario.last_name,
+            email: '',
+            phone: ''
+        })
 
-        const action = result.action;
-        const parameters = struct.decode(result.parameters);
+        await nuevoProspecto.save(function (err) {
+            if (err) return handleError(err);
+            const nuevaVisita = new Visita({
+                prospecto: nuevoProspecto._id,
+                facebookId: senderPsid,
+                first_name: datosUsuario.first_name,
+                last_name: datosUsuario.last_name,
+                email: '',
+                phone: ''
+            });
+
+            nuevaVisita.save();
+        });
+    } else { // CREAR NUEVA VISITA
+        if (!messageTimes.has(senderPsid) || (Date.now() - messageTimes.get(senderPsid)) - config.TIME_AFK >= 0) {
+            const datosUsuario = await getUserData(senderPsid);
+            const nuevaVisita = new Visita({
+                prospecto: usuarioEstaEnProspecto._id,
+                facebookId: senderPsid,
+                first_name: datosUsuario.first_name,
+                last_name: datosUsuario.last_name,
+                email: '',
+                phone: ''
+            });
+            await nuevaVisita.save();
+        }
+    }
+
+    if (receivedMessage.text) {
+        var result = await getResponse(senderPsid, receivedMessage.text);
+        var action = result.action;
+        var parameters = struct.decode(result.parameters);
         var text = result.fulfillmentText;
-        const outPutParameters = result.outputContexts;
+        var outPutParameters = result.outputContexts;
 
         response = await handleActions(senderPsid, action, parameters, text, outPutParameters);
 
@@ -70,41 +117,44 @@ async function handleMessage(senderPsid, receivedMessage) {
             'text': 'Enviaste un archivo adjunto!'
         };
     }
-
     callSendAPI(senderPsid, response);
+}
+
+function armarCarruselDeConciertos() {
+
+
 }
 
 async function handleActions(senderPsid, action, parameters, text, outPutParameters) {
     let response;
-    let elements = {};
-    let key;
+
     switch (action) {
-        case 'action.informacionGeneral':
-            const events = await Events.find({});
+        case 'action.informacionTodosLosDisponibles':
+            var concierto = await Concierto.obtenerTodosDisponibles();
+            var elements = {};
+            var key;
             key = "elements";
             elements[key] = [];
-
-            for (var i = 0; i < events.length; i++) {
+            for (var i = 0; i < concierto.length; i++) {
                 var data = {
-                    "title": events[i].name,
-                    "image_url": events[i].thumbnail,
-                    "subtitle": events[i].description,
+                    "title": concierto[i].nombre,
+                    "image_url": concierto[i].banner,
+                    "subtitle": concierto[i].descripcion,
                     "buttons": [
                         {
                             "type": "postback",
                             "title": "Reservar",
-                            "payload": "reservar " + events[i].event
+                            "payload": "reservar " + concierto[i].nombre
                         },
                         {
                             "type": "postback",
-                            "title": "Información",
-                            "payload": "informacion de " + events[i].event
+                            "title": "Detalles",
+                            "payload": "informacion de " + concierto[i].nombre
                         },
                     ]
                 }
                 elements[key].push(data);
             }
-
             response = {
                 "attachment": {
                     "type": "template",
@@ -114,113 +164,103 @@ async function handleActions(senderPsid, action, parameters, text, outPutParamet
                     }
                 }
             }
+            callSendAPI(senderPsid, { text: text })
             break;
-        case 'action.informacionXConcierto':
-            var event = parameters.Eventos;
-            var information = await Events.find({ event: event });
-
+        case 'action.informacionConParametrosArtista':
+            //Nombre del artista
+            var nombreArtista = parameters.artista;
+            var concierto = await Concierto.obtenerConciertoDisponiblePorArtista(nombreArtista);
+            var elements = {};
+            var key;
+            key = "elements";
+            elements[key] = [];
+            for (var i = 0; i < concierto.length; i++) {
+                var data = {
+                    "title": concierto[i].nombre,
+                    "image_url": concierto[i].banner,
+                    "subtitle": concierto[i].descripcion,
+                    "buttons": [
+                        {
+                            "type": "postback",
+                            "title": "Reservar",
+                            "payload": "reservar " + concierto[i].nombre
+                        },
+                        {
+                            "type": "postback",
+                            "title": "Detalles",
+                            "payload": "informacion de " + concierto[i].nombre
+                        },
+                    ]
+                }
+                elements[key].push(data);
+            }
             response = {
                 "attachment": {
                     "type": "template",
                     "payload": {
                         "template_type": "generic",
-                        "elements": [
-                            {
-                                "title": information[0].name,
-                                "image_url": information[0].thumbnail,
-                                "subtitle": information[0].description,
-                                "buttons": [
-                                    {
-                                        "type": "postback",
-                                        "title": "Ubicación",
-                                        "payload": "lugar " + information[0].event
-                                    },
-                                    {
-                                        "type": "postback",
-                                        "title": "Fecha",
-                                        "payload": "cuando " + information[0].event
-                                    },
-                                    {
-                                        "type": "postback",
-                                        "title": "Precios",
-                                        "payload": "precio " + information[0].event
-                                    },
-                                ]
-                            }
-                        ]
+                        "elements": elements.elements
                     }
                 }
             }
-
+            callSendAPI(senderPsid, { text: text })
+            await Interes.registrarArtista(senderPsid, nombreArtista);
             break;
-        case 'action.informacionXConcierto.donde':
-            var event = parameters.Eventos;
-            var information = await Events.find({ event: event });
-
-            response = {
-                'text': "El concierto es en la ciudad de " + information[0].city
-            };
-            break;
-        case 'action.informacionXConcierto.cuando':
-            var event = parameters.Eventos;
-            var information = await Events.find({ event: event });
-
-            response = {
-                'text': "La fecha del concierto es el día " + information[0].date
-            };
-            break;
-
-        case 'action.informacionXConcierto.precio':
-            var event = parameters.Eventos;
-            var informationSectors = await Sectors.find({ event: event });
-            var informationEvents = await Events.find({ event: event });
-
+        case 'action.informacionConParametrosCiudad':
+            const ciudad = parameters.ciudad;
+            var concierto = await Concierto.obtenerConciertoDosponiblePorCiudad(ciudad);
+            var elements = {};
+            var key;
+            key = "elements";
+            elements[key] = [];
+            for (var i = 0; i < concierto.length; i++) {
+                var data = {
+                    "title": concierto[i].nombre,
+                    "image_url": concierto[i].banner,
+                    "subtitle": concierto[i].descripcion,
+                    "buttons": [
+                        {
+                            "type": "postback",
+                            "title": "Reservar",
+                            "payload": "reservar " + concierto[i].nombre
+                        },
+                        {
+                            "type": "postback",
+                            "title": "Detalles",
+                            "payload": "informacion de " + concierto[i].nombre
+                        },
+                    ]
+                }
+                elements[key].push(data);
+            }
             response = {
                 "attachment": {
                     "type": "template",
                     "payload": {
                         "template_type": "generic",
-                        "elements": [
-                            {
-                                "title": 'General para ' + informationEvents[0].name,
-                                "image_url": 'https://previews.123rf.com/images/vectorplusb/vectorplusb1701/vectorplusb170100247/69994034-insignia-del-metal-de-bronce-moderna-elementos-de-etiqueta-y-diseño-ilustración-vectorial.jpg',
-                                "subtitle": 'Precio: ' + informationSectors[0].general.price + ' $',
-                                "buttons": [
-                                    {
-                                        "type": "postback",
-                                        "title": "Reservar",
-                                        "payload": "reservar general " + informationEvents[0].event
-                                    },
-                                ]
-                            },
-                            {
-                                "title": 'Preferencia para ' + informationEvents[0].name,
-                                "image_url": 'https://us.123rf.com/450wm/vectorplusb/vectorplusb1701/vectorplusb170100246/69994033-insignia-de-metal-círculo-plata-moderna-etiqueta-y-elementos-de-diseño-ilustración-vectorial.jpg',
-                                "subtitle": 'Precio: ' + informationSectors[0].preference.price + ' $',
-                                "buttons": [
-                                    {
-                                        "type": "postback",
-                                        "title": "Reservar",
-                                        "payload": "reservar preferencia " + informationEvents[0].event
-                                    },
-                                ]
-                            },
-                            {
-                                "title": 'Vip para ' + informationEvents[0].name,
-                                "image_url": 'https://c8.alamy.com/compes/p18kj8/insignia-de-oro-con-cintas-aislado-sobre-fondo-blanco-ilustracion-3d-p18kj8.jpg',
-                                "subtitle": 'Precio: ' + informationSectors[0].vip.price + ' $',
-                                "buttons": [
-                                    {
-                                        "type": "postback",
-                                        "title": "Reservar",
-                                        "payload": "reservar vip " + informationEvents[0].event
-                                    },
-                                ]
-                            }
-                        ]
+                        "elements": elements.elements
                     }
                 }
             }
+            callSendAPI(senderPsid, { text: text })
+            await Interes.registrarCiudad(senderPsid, ciudad);
+            break;
+        case 'action.informacionConParametrosTiempo':
+            // var time = parameters.date-time;
+            console.log(parameters);
+
+            response = {
+                'text': "La fecha del concierto es el día"
+            };
+            break;
+        case 'action.informacionDondeConciertoArtista':
+            var nombreArtista = parameters.artista;
+
+            response = {
+                text: 'El concierto\n será en\n'
+            }
+
+
             break;
         case 'action.guardarDatosReserva':
             const oParameters = struct.decode(outPutParameters[1].parameters);
@@ -241,42 +281,6 @@ async function handleActions(senderPsid, action, parameters, text, outPutParamet
                 response = {
                     'text': 'Confirma tu pedido: Evento: ' + pedido[0] + ' Sector: ' + pedido[1] + ' Cantidad: ' + pedido[2]
                 };
-
-                /*response = {
-                    "attachment": {
-                        "type": "template",
-                        "payload": {
-                            "template_type": "receipt",
-                            "recipient_name": user[0],
-                            "order_number": "12345678902",
-                            "currency": "USD",
-                            "payment_method": "En espera",
-                            "order_url": "http://petersapparel.parseapp.com/order?order_id=123456",
-                            "timestamp": "1428444852",
-                            "address": {
-                                "street_1": "",
-                                "street_2": "",
-                                "city": "",
-                                "postal_code": "",
-                                "state": "",
-                                "country": ""
-                            },
-                            "summary": {
-                                "total_cost": 56.14
-                            },
-                            "elements": [
-                                {
-                                    "title": pedido[0],
-                                    "subtitle": pedido[1],
-                                    "quantity": pedido[2],
-                                    "price": 50,
-                                    "currency": "USD",
-                                    "image_url": "http://petersapparel.parseapp.com/img/whiteshirt.png"
-                                }
-                            ]
-                        }
-                    }
-                };*/
             } else {
                 response = {
                     'text': text
@@ -289,7 +293,6 @@ async function handleActions(senderPsid, action, parameters, text, outPutParamet
             };
             break;
     }
-
     return response;
 }
 
@@ -312,6 +315,28 @@ function callSendAPI(senderPsid, response) {
             console.error('Error al enviar mensaje:' + err);
         }
     });
+}
+
+async function getUserData(senderPsid) {
+    let access_token = config.PAGE_ACCESS_TOKEN;
+    try {
+        let userData = await axios.get(
+            'https://graph.facebook.com/v2.6/' + senderPsid + '?',
+            {
+                params: {
+                    access_token,
+                },
+            }
+        );
+        return userData.data;
+    } catch (err) {
+        console.log("Algo salio mal en axios getUserData: ", err);
+        return {
+            first_name: "",
+            last_name: "",
+            profile_pic: "",
+        };
+    }
 }
 
 module.exports = {

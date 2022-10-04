@@ -17,5 +17,5 @@ module.exports = {
     MONGO_URL: process.env.MONGO_URL || '',
 
     // Configuraciones
-    TIME_AFK: '10000'
+    TIME_AFK: '60000'
 }

@@ -2,7 +2,7 @@ const dialogflow = require('@google-cloud/dialogflow');
 const uuid = require('uuid');
 const config = require('./config');
 const { struct } = require('pb-util');
-
+const { sessionsId, messageTimes } = require('./maps');
 const projectId = config.GOOGLE_PROJECT_ID;
 
 const sessionClient = new dialogflow.SessionsClient({
@@ -14,11 +14,8 @@ const sessionClient = new dialogflow.SessionsClient({
 });
 
 
-const sessionsId = new Map();
-const messageTimes = new Map();
-
-
 async function getResponse(senderPsid, texto) {
+
     if (messageTimes.has(senderPsid)) {
         if ((Date.now() - messageTimes.get(senderPsid)) - config.TIME_AFK >= 0) {
             sessionsId.delete(senderPsid);
@@ -49,18 +46,7 @@ async function getResponse(senderPsid, texto) {
     };
 
     const responses = await sessionClient.detectIntent(request);
-
     const result = responses[0].queryResult;
-    //console.log(result);
-    //console.log('Respuesta: ' + result.fulfillmentText);
-    //console.log('ContextoSalida: ' + result.outputContexts);
-    //const param = struct.decode(result.parameters);
-    //console.log(param);
-    //console.log('Parametros: '+ param.number);
-
-    //const intent = struct.decode(result.intent);
-    //console.log(result.intent.displayName);
-
     messageTimes.set(senderPsid, Date.now());
     return result;
 }
