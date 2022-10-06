@@ -3,14 +3,15 @@ const request = require("request");
 const axios = require("axios");
 const { getResponse } = require('../dialogflow');
 const { struct } = require('pb-util');
-const Concierto = require('../models/concierto');
-const Prospecto = require('../models/prospecto')
-const Artista = require('../models/artista');
-const Visita = require('../models/visita');
 const { messageTimes } = require('../maps');
-const { VERIFICATION_TOKEN } = require('../config');
-const Escenario = require('../models/escenario');
-const Interes = require('../models/interes');
+const Prospecto = require('../models/prospecto')
+const Visita = require('../models/visita');
+const Stock = require('../models/stock');
+const Deporte = require('../models/deporte');
+const Calzado = require('../models/calzado');
+const Marca = require('../models/marca');
+const Color = require('../models/color');
+const Consulta = require('../models/consulta');
 
 const reservasCollection = new Map();
 const userCollection = new Map();
@@ -48,9 +49,9 @@ const postWebhook = (req, res) => {
                     text: webhookEvent.postback.payload
                 }
                 handleMessage(senderPsid, message);
-            } else if(webhookEvent.messaging_feedback){
+            } else if (webhookEvent.messaging_feedback) {
                 const messaging_feedback = webhookEvent.messaging_feedback;
-                const calificacion = messaging_feedback.feedback_screens[0].questions.calificarExpe;
+                const calificacion = messaging_feedback.feedback_screens[0].questions.hauydmns8;
                 Visita.guardarCalificacion(senderPsid, calificacion.payload);
             }
         });
@@ -75,7 +76,7 @@ async function handleMessage(senderPsid, receivedMessage) {
             first_name: datosUsuario.first_name,
             last_name: datosUsuario.last_name,
             email: '',
-            phone: ''
+            phone: '',
         })
 
         await nuevoProspecto.save(function (err) {
@@ -86,7 +87,8 @@ async function handleMessage(senderPsid, receivedMessage) {
                 first_name: datosUsuario.first_name,
                 last_name: datosUsuario.last_name,
                 email: '',
-                phone: ''
+                phone: '',
+                calificacion: ''
             });
 
             nuevaVisita.save();
@@ -100,7 +102,8 @@ async function handleMessage(senderPsid, receivedMessage) {
                 first_name: datosUsuario.first_name,
                 last_name: datosUsuario.last_name,
                 email: '',
-                phone: ''
+                phone: '',
+                calificacion: ''
             });
             await nuevaVisita.save();
         }
@@ -113,7 +116,7 @@ async function handleMessage(senderPsid, receivedMessage) {
         var text = result.fulfillmentText;
         var outPutParameters = result.outputContexts;
 
-        response = await handleActions(senderPsid, action, parameters, text, outPutParameters);
+        response = await handleActions(senderPsid, text, action, parameters, outPutParameters);
 
     } else if (receivedMessage.attachments) {
         response = {
@@ -122,145 +125,266 @@ async function handleMessage(senderPsid, receivedMessage) {
     }
     callSendAPI(senderPsid, response);
 }
+async function crearCarruselDeCalzados(stockCalzados) {
+    let response;
+    if (stockCalzados.length > 0) {
+        var elements = {};
+        var key;
+        key = "elements";
+        elements[key] = [];
+        for (var i = 0; i < stockCalzados.length; i++) {
+            if (Stock.hasCantidadDisponible(stockCalzados[i].talla)) { // Agregar
+                var infoCalzado = await Calzado.findOne({ _id: stockCalzados[i].calzado });
+                var marca = await Marca.findOne({ _id: infoCalzado.marca });
+                var color = await Color.findOne({ _id: infoCalzado.color[0] });
 
-function armarCarruselDeConciertos() {
+                var data = {
+                    "title": marca.nombre + ' ' + infoCalzado.modelo,
+                    "image_url": infoCalzado.imagen[0],
+                    "subtitle": 'Precio: ' + stockCalzados[i].precio + '\nColor: ' + color.nombre + '\nGenero: ' + infoCalzado.genero,
+                    "buttons": [
+                        {
+                            "type": "postback",
+                            "title": "Mas Imagenes",
+                            "payload": "imagenes de " + infoCalzado.modelo
+                        },
+                        {
+                            "type": "postback",
+                            "title": "Comprar",
+                            "payload": "comprar " + infoCalzado.modelo
+                        },
+                    ]
+                }
+                elements[key].push(data);
+            }
+        }
+        response = {
+            "attachment": {
+                "type": "template",
+                "payload": {
+                    "template_type": "generic",
+                    "elements": elements.elements
+                }
+            }
+        }
+    } else {
+        response = null
+    }
 
-
+    return response;
 }
 
-async function handleActions(senderPsid, action, parameters, text, outPutParameters) {
+async function handleActions(senderPsid, text, action, parameters, outPutParameters) {
     let response;
 
     switch (action) {
-        case 'action.informacionTodosLosDisponibles':
-            var concierto = await Concierto.obtenerTodosDisponibles();
-            var elements = {};
-            var key;
-            key = "elements";
-            elements[key] = [];
-            for (var i = 0; i < concierto.length; i++) {
-                var data = {
-                    "title": concierto[i].nombre,
-                    "image_url": concierto[i].banner,
-                    "subtitle": concierto[i].descripcion,
-                    "buttons": [
-                        {
-                            "type": "postback",
-                            "title": "Reservar",
-                            "payload": "reservar " + concierto[i].nombre
-                        },
-                        {
-                            "type": "postback",
-                            "title": "Detalles",
-                            "payload": "informacion de " + concierto[i].nombre
-                        },
-                    ]
-                }
-                elements[key].push(data);
+        case 'action.enviarListaDeZapatosParaXDeporte':
+            var nombreDeporte = parameters.deporte;
+            if (nombreDeporte) {
+                var stockCalzados = await Stock.getListaDeCalzadosParaDeporte(nombreDeporte);
+                response = await crearCarruselDeCalzados(stockCalzados);
             }
-            response = {
-                "attachment": {
-                    "type": "template",
-                    "payload": {
-                        "template_type": "generic",
-                        "elements": elements.elements
-                    }
+            callSendAPI(senderPsid, { text: text });
+            Consulta.registrarDeporte(senderPsid, nombreDeporte);
+            break;
+        case 'action.enviarListaDeZaptosParaXDeporteYColor':
+            var nombreDeporte = parameters.deporte;
+            var color = parameters.color;
+            color = color.charAt(0).toUpperCase() + color.slice(1);
+            if (nombreDeporte) {
+                var stockCalzados = await Stock.getListaDeCalzadosParaDeportePorColor(nombreDeporte, color);
+                response = await crearCarruselDeCalzados(stockCalzados);
+                if (!response) {
+                    text = "Lo lamento no contamos con calzados con estas caracteristicas."
                 }
+                await Consulta.registrarDeporte(senderPsid, nombreDeporte);
+                await Consulta.registrarColor(senderPsid, color);
             }
             callSendAPI(senderPsid, { text: text })
             break;
-        case 'action.informacionConParametrosArtista':
-            //Nombre del artista
-            var nombreArtista = parameters.artista;
-            var concierto = await Concierto.obtenerConciertoDisponiblePorArtista(nombreArtista);
-            var elements = {};
-            var key;
-            key = "elements";
-            elements[key] = [];
-            for (var i = 0; i < concierto.length; i++) {
-                var data = {
-                    "title": concierto[i].nombre,
-                    "image_url": concierto[i].banner,
-                    "subtitle": concierto[i].descripcion,
-                    "buttons": [
-                        {
-                            "type": "postback",
-                            "title": "Reservar",
-                            "payload": "reservar " + concierto[i].nombre
-                        },
-                        {
-                            "type": "postback",
-                            "title": "Detalles",
-                            "payload": "informacion de " + concierto[i].nombre
-                        },
-                    ]
+        case 'action.enviarListaDeZaptosParaXDeporteYGenero':
+            var nombreDeporte = parameters.deporte;
+            var genero = parameters.genero;
+            if (nombreDeporte) {
+                var stockCalzados = await Stock.getListaDeCalzadosParaDeportePorGenero(nombreDeporte, genero);
+                response = await crearCarruselDeCalzados(stockCalzados);
+                if (!response) {
+                    text = "Lo lamento no contamos con calzados con estas caracteristicas."
                 }
-                elements[key].push(data);
-            }
-            response = {
-                "attachment": {
-                    "type": "template",
-                    "payload": {
-                        "template_type": "generic",
-                        "elements": elements.elements
-                    }
-                }
+                await Consulta.registrarDeporte(senderPsid, nombreDeporte);
+                await Consulta.registrarGenero(senderPsid, genero);
             }
             callSendAPI(senderPsid, { text: text })
-            await Interes.registrarArtista(senderPsid, nombreArtista);
             break;
-        case 'action.informacionConParametrosCiudad':
-            const ciudad = parameters.ciudad;
-            var concierto = await Concierto.obtenerConciertoDosponiblePorCiudad(ciudad);
-            var elements = {};
-            var key;
-            key = "elements";
-            elements[key] = [];
-            for (var i = 0; i < concierto.length; i++) {
-                var data = {
-                    "title": concierto[i].nombre,
-                    "image_url": concierto[i].banner,
-                    "subtitle": concierto[i].descripcion,
-                    "buttons": [
-                        {
-                            "type": "postback",
-                            "title": "Reservar",
-                            "payload": "reservar " + concierto[i].nombre
-                        },
-                        {
-                            "type": "postback",
-                            "title": "Detalles",
-                            "payload": "informacion de " + concierto[i].nombre
-                        },
-                    ]
+        case 'action.enviarListaDeZaptosParaXDeporteYMarca':
+            var nombreDeporte = parameters.deporte;
+            var marca = parameters.marca;
+            if (nombreDeporte) {
+                var stockCalzados = await Stock.getListaDeCalzadosParaDeportePorMarca(nombreDeporte, marca);
+                response = await crearCarruselDeCalzados(stockCalzados);
+                if (!response) {
+                    text = "Lo lamento no contamos con calzados con estas caracteristicas."
                 }
-                elements[key].push(data);
-            }
-            response = {
-                "attachment": {
-                    "type": "template",
-                    "payload": {
-                        "template_type": "generic",
-                        "elements": elements.elements
-                    }
-                }
+                await Consulta.registrarDeporte(senderPsid, nombreDeporte);
+                await Consulta.registrarMarca(senderPsid, marca);
             }
             callSendAPI(senderPsid, { text: text })
-            await Interes.registrarCiudad(senderPsid, ciudad);
             break;
-        case 'action.informacionConParametrosTiempo':
-            // var time = parameters.date-time;
-            console.log(parameters);
+        case 'action.enviarListaDeZaptosParaXDeporteYMarcaZColor':
+            var nombreDeporte = parameters.deporte;
+            var marca = parameters.marca;
+            var color = parameters.color;
+            color = color.charAt(0).toUpperCase() + color.slice(1);
+            if (nombreDeporte) {
+                var stockCalzados = await Stock.getListaDeCalzadosParaDeportePorMarcaYColor(nombreDeporte, marca, color);
+                response = await crearCarruselDeCalzados(stockCalzados);
+                if (!response) {
+                    text = "Lo lamento no contamos con calzados para estas caracteristicas."
+                }
+                await Consulta.registrarDeporte(senderPsid, nombreDeporte);
+                await Consulta.registrarColor(senderPsid, color);
+                await Consulta.registrarMarca(senderPsid, marca);
+            }
+            callSendAPI(senderPsid, { text: text })
+            break;
+        case 'action.enviarListaDeZaptosParaXDeporteYMarcaZGenero':
+            var nombreDeporte = parameters.deporte;
+            var marca = parameters.marca;
+            var genero = parameters.genero;
+            if (nombreDeporte) {
+                var stockCalzados = await Stock.getListaDeCalzadosParaDeportePorMarcaYGenero(nombreDeporte, marca, genero);
+                response = await crearCarruselDeCalzados(stockCalzados);
+                if (!response) {
+                    text = "Lo lamento no contamos con calzados para estas caracteristicas."
+                }
+                await Consulta.registrarDeporte(senderPsid, nombreDeporte);
+                await Consulta.registrarGenero(senderPsid, genero);
+                await Consulta.registrarMarca(senderPsid, marca);
 
-            response = {
-                'text': "La fecha del concierto es el día"
-            };
+            }
+            callSendAPI(senderPsid, { text: text })
             break;
-        case 'action.informacionDondeConciertoArtista':
-            var nombreArtista = parameters.artista;
+        // AQUI ENTRAN MAS ACCIONES PARA ENVIAR LISTA
 
-            response = {
-                text: 'El concierto\n será en\n'
+
+        case 'action.enviarListaDeImagenes':
+            var modelo = parameters.modelo;
+            var images = await Calzado.getImages(modelo);
+            if (images) {
+                var elements = {};
+                var key;
+                key = "elements";
+                elements[key] = [];
+                for (var i = 0; i < images.length; i++) {
+                    var data = {
+                        "title": modelo,
+                        "image_url": images[i],
+                        "subtitle": "",
+                        "default_action": {
+                            "type": "web_url",
+                            "url": images[i],
+                            "webview_height_ratio": "full",
+                        },
+                        "buttons": [
+                            {
+                                "type": "postback",
+                                "title": "Comprar",
+                                "payload": "comprar " + modelo
+                            },
+                        ]
+                    }
+                    elements[key].push(data);
+                }
+                response = {
+                    "attachment": {
+                        "type": "template",
+                        "payload": {
+                            "template_type": "generic",
+                            "elements": elements.elements
+                        }
+                    }
+                }
+                callSendAPI(senderPsid, { text: text })
+            } else {
+                response = {
+                    'text': 'Lo siento no encontré informacion de tal model.'
+                }
+            }
+            break;
+        case 'action.comprarModelo':
+            var modelo = parameters.modelo;
+            var talla = parameters.number;
+            if (talla) {
+                // Verificar si está disponible en esa talla
+                var calzado = await Calzado.findOne({ modelo: modelo });
+                var estaDisponible = await Stock.hasTallaDisponible(calzado._id, talla);
+                if (estaDisponible) {
+                    // Capturar modelo y talla
+                    response = {
+                        'text': text
+                    }
+
+                } else {
+                    response = {
+                        'text': 'Lo siento no tenemos talla ' + talla + ' para este producto. Por favor intenta con otro modelo.'
+                    }
+                }
+            } else {
+                response = {
+                    'text': text
+                }
+            }
+            break;
+        case 'action.registrarNombre':
+            var name = parameters.person.name;
+            if (name) {
+                // Registrar Nombre de la persona.
+                response = {
+                    'text': text
+                }
+            } else {
+                response = {
+                    'text': text
+                }
+            }
+            break;
+        case 'action.registrarNumero':
+            var phone = parameters.number;
+            if (phone) {
+                // Registrar numero de la persona.
+                response = {
+                    'text': text
+                }
+            } else {
+                response = {
+                    'text': text
+                }
+            }
+            break;
+        case 'action.registrarCorreo':
+            var correo = parameters.email;
+            if (correo) {
+                // Regisrar Correo
+                response = {
+                    'text': text
+                }
+            } else {
+                response = {
+                    'text': text
+                }
+            }
+            break;
+        case 'action.registrarCiudad':
+            var ciudad = parameters.location;
+            if (ciudad) {
+                // Regisrar Correo
+                response = {
+                    'text': text
+                }
+            } else {
+                response = {
+                    'text': text
+                }
             }
             break;
         case 'action.enviarFormularioDeCalificación':
@@ -269,16 +393,16 @@ async function handleActions(senderPsid, action, parameters, text, outPutParamet
                     "type": "template",
                     "payload": {
                         "template_type": "customer_feedback",
-                        "title": 'Calificame!', // Business needs to define. 
-                        "subtitle": text, // Business needs to define. 
+                        "title": "Ingresa tu Calificación", // Business needs to define. 
+                        "subtitle": "Tu calificación me ayuda a mejorar.", // Business needs to define. 
                         "button_title": "Calificar", // Business needs to define. 
                         "feedback_screens": [{
                             "questions": [{
-                                "id": "calificarExpe", // Unique id for question that business sets
+                                "id": "hauydmns8", // Unique id for question that business sets
                                 "type": "csat",
-                                "title": "Te fue de ayuda mis servicios para reservar entradas?", // Optional. If business does not define, we show standard text. Standard text based on question type ("csat", "nps", "ces" >>> "text")
+                                "title": "¿Cómo calificaría su experiencia al interactuar conmigo?", // Optional. If business does not define, we show standard text. Standard text based on question type ("csat", "nps", "ces" >>> "text")
                                 "score_label": "neg_pos", // Optional
-                                "score_option": "five_stars" // Optional
+                                "score_option": "five_stars", // Optional
                             }]
                         }],
                         "business_privacy":
@@ -288,31 +412,6 @@ async function handleActions(senderPsid, action, parameters, text, outPutParamet
                         "expires_in_days": 3 // Optional, default 1 day, business defines 1-7 days
                     }
                 }
-            }
-            break;
-        case 'action.guardarDatosReserva':
-            const oParameters = struct.decode(outPutParameters[1].parameters);
-            // Verificar si ya existe un registro de reserva de este usuario.
-
-            reservasCollection.set(senderPsid, [oParameters.Eventos, oParameters.Sectores, oParameters.number]);
-            response = {
-                'text': text
-            };
-            break;
-        case 'action.EnviarResumenReservaYEsperarConfirmación':
-            if (text === 'Por favor confirma tu reserva y datos personales.') {
-                userCollection.set(senderPsid, [parameters.person.name, parameters.email]);
-
-                const pedido = reservasCollection.get(senderPsid);
-                const user = userCollection.get(senderPsid);
-
-                response = {
-                    'text': 'Confirma tu pedido: Evento: ' + pedido[0] + ' Sector: ' + pedido[1] + ' Cantidad: ' + pedido[2]
-                };
-            } else {
-                response = {
-                    'text': text
-                };
             }
             break;
         default:

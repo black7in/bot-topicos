@@ -16,8 +16,9 @@ app.use(bodyParser.json());
 app.use(routes);
 
 // mongo
+
 mongoose.connect(config.MONGO_URL)
-    .then(() => console.log('DB Conectada.'))
-    .catch((err) => console.log('err'));
- 
+        .then(() => console.log('DB Conectada.'))
+        .catch((err) => console.log('err'));
+
 module.exports = app;

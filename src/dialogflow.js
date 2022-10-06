@@ -1,7 +1,6 @@
 const dialogflow = require('@google-cloud/dialogflow');
 const uuid = require('uuid');
 const config = require('./config');
-const { struct } = require('pb-util');
 const { sessionsId, messageTimes } = require('./maps');
 const projectId = config.GOOGLE_PROJECT_ID;
 

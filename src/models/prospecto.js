@@ -13,4 +13,5 @@ const prospectoSchema = new Schema({
 
 const Prospecto = new model('Prospecto', prospectoSchema, 'prospecto');
 
+
 module.exports = Prospecto
